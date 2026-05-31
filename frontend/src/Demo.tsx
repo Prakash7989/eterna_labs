@@ -104,6 +104,19 @@ export function qualityColor(q: number): string {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   COMBINATORICS HELPER
+══════════════════════════════════════════════════════════════════════════ */
+function comb(n: number, k: number): number {
+  if (k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  let result = 1;
+  for (let i = 0; i < k; i++) {
+    result = (result * (n - i)) / (i + 1);
+  }
+  return Math.round(result);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    OPTIMAL C(10,5) TEAM SPLIT  (mirrors balance.rs)
    252 combinations — exhaustive & provably optimal
 ══════════════════════════════════════════════════════════════════════════ */
@@ -247,13 +260,98 @@ export function Demo() {
   const [region,       setRegion]       = useState(REGIONS[0]);
   const [now,          setNow]          = useState(Date.now());
   const [matchCounter, setMatchCounter] = useState(0);
+  const [autoSim,      setAutoSim]      = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
+
+  /* refs so the auto-sim interval always sees fresh values */
+  const poolRef         = useRef<DemoPlayer[]>([]);
+  const matchCounterRef = useRef(0);
+  const regionRef       = useRef(REGIONS[0]);
+  const tierFilterRef   = useRef<TierFilter>("All");
+
+  useEffect(() => { poolRef.current = pool; }, [pool]);
+  useEffect(() => { matchCounterRef.current = matchCounter; }, [matchCounter]);
+  useEffect(() => { regionRef.current = region; }, [region]);
+  useEffect(() => { tierFilterRef.current = tierFilter; }, [tierFilter]);
 
   /* tick every 500 ms → wait bars animate smoothly */
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(t);
   }, []);
+
+  /* ── auto-simulation ── */
+  useEffect(() => {
+    if (!autoSim) return;
+
+    // Every 800 ms: add 1-2 players, and form a match when pool ≥ 10
+    const id = setInterval(() => {
+      const reg = regionRef.current;
+      const tf  = tierFilterRef.current;
+
+      // add 1 or 2 players
+      const count = Math.random() < 0.4 ? 2 : 1;
+      const newPlayers = Array.from({ length: count }, () => makePlayer(tf, reg));
+      setPool((prev) => {
+        const updated = [...prev, ...newPlayers];
+        poolRef.current = updated;
+        return updated;
+      });
+      setLog((prev) => [
+        ...newPlayers.map((p) => ({
+          ts: fmtTs(),
+          msg: `[auto] ${p.label} (${getTier(p.mmr)}, ${p.mmr} MMR) joined ${reg}`,
+          type: "join" as const,
+        })),
+        ...prev,
+      ].slice(0, 200));
+
+      // attempt match formation after state update
+      setTimeout(() => {
+        const candidates = poolRef.current.filter((p) => p.region === regionRef.current);
+        if (candidates.length < 10) return;
+
+        const sorted = [...candidates].sort((a, b) => a.mmr - b.mmr);
+        let bestSpread = Infinity;
+        let bestStart = 0;
+        for (let i = 0; i <= sorted.length - 10; i++) {
+          const spread = sorted[i + 9].mmr - sorted[i].mmr;
+          if (spread < bestSpread) { bestSpread = spread; bestStart = i; }
+        }
+        const roster = sorted.slice(bestStart, bestStart + 10);
+        const [teamA, teamB] = optimalTeamSplit(roster);
+        const teamAmmr = teamA.reduce((s, p) => s + p.mmr, 0) / 5;
+        const teamBmmr = teamB.reduce((s, p) => s + p.mmr, 0) / 5;
+        const balance  = Math.abs(teamAmmr - teamBmmr);
+        const quality  = matchQuality(bestSpread, balance);
+
+        const mc = matchCounterRef.current + 1;
+        matchCounterRef.current = mc;
+        setMatchCounter(mc);
+
+        const m: DemoMatch = {
+          id: mc, teamA, teamB, teamAmmr, teamBmmr,
+          spread: bestSpread, balance, quality, formedAt: new Date(), region: regionRef.current,
+        };
+        setMatches((prev) => [m, ...prev]);
+
+        const matched = new Set([...teamA, ...teamB].map((p) => p.id));
+        setPool((prev) => {
+          const next = prev.filter((p) => !matched.has(p.id));
+          poolRef.current = next;
+          return next;
+        });
+        setLog((prev) => [{
+          ts: fmtTs(),
+          msg: `[auto] Match #${mc} formed — A:${Math.round(teamAmmr)} vs B:${Math.round(teamBmmr)} · Δ${Math.round(balance)} · spread ${bestSpread} · quality ${quality}%`,
+          type: "match" as const,
+        }, ...prev].slice(0, 200));
+        setTab("last");
+      }, 50);
+    }, 900);
+
+    return () => clearInterval(id);
+  }, [autoSim]);
 
   /* ── event log ── */
   const addLog = useCallback((msg: string, type: LogEntry["type"]) => {
@@ -388,13 +486,20 @@ export function Demo() {
           </label>
         </div>
         <div className="demo-controls-right">
-          <button className="demo-btn demo-btn--ghost" onClick={addPlayer}>+ Add player</button>
-          <button className="demo-btn demo-btn--ghost" onClick={burstAdd}>Burst +10</button>
+          <button
+            className={`demo-btn ${autoSim ? "demo-btn--auto-on" : "demo-btn--ghost"}`}
+            onClick={() => setAutoSim((v) => !v)}
+            title={autoSim ? "Stop auto-simulation" : "Start auto-simulation (adds players & forms matches automatically)"}
+          >
+            {autoSim ? "⏹ Stop auto" : "⚡ Auto-simulate"}
+          </button>
+          <button className="demo-btn demo-btn--ghost" onClick={addPlayer} disabled={autoSim}>+ Add player</button>
+          <button className="demo-btn demo-btn--ghost" onClick={burstAdd} disabled={autoSim}>Burst +10</button>
           <button
             className="demo-btn demo-btn--primary"
             onClick={findMatch}
-            disabled={regionPool.length < 10}
-            title={regionPool.length < 10 ? `Need ${10 - regionPool.length} more players` : ""}
+            disabled={regionPool.length < 10 || autoSim}
+            title={autoSim ? "Disable auto-simulate to control manually" : regionPool.length < 10 ? `Need ${10 - regionPool.length} more players` : ""}
           >
             ▶ Find match
           </button>
@@ -484,7 +589,7 @@ export function Demo() {
                     <span className="demo-mstat-label">Team Δ</span>
                   </div>
                   <div className="demo-mstat">
-                    <span className="demo-mstat-val">252</span>
+                    <span className="demo-mstat-val">{comb(10, 5)}</span>
                     <span className="demo-mstat-label">Splits tested</span>
                   </div>
                   <div className="demo-mstat">

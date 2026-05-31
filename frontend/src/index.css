@@ -785,6 +785,23 @@ th {
   box-shadow: none !important;
 }
 
+.demo-btn--auto-on {
+  background: linear-gradient(135deg, #ff6b6b22, #ffc85722);
+  border: 1px solid #ffc857;
+  color: #ffc857;
+  box-shadow: 0 0 12px #ffc85733;
+  animation: auto-sim-pulse 1.8s ease-in-out infinite;
+}
+
+.demo-btn--auto-on:hover {
+  box-shadow: 0 0 20px #ffc85766;
+}
+
+@keyframes auto-sim-pulse {
+  0%, 100% { box-shadow: 0 0 8px #ffc85744; }
+  50%       { box-shadow: 0 0 18px #ffc85788; }
+}
+
 /* ── pool bar ── */
 .demo-pool-bar {
   display: flex;
