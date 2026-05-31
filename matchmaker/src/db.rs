@@ -86,7 +86,8 @@ impl Database {
             .port(port)
             .username(&user)
             .password(&pass)
-            .database(&db_name);
+            .database(&db_name)
+            .ssl_mode(sqlx::mysql::MySqlSslMode::Required);
         opts = opts.disable_statement_logging();
 
         let pool = MySqlPoolOptions::new()
@@ -107,7 +108,8 @@ impl Database {
             .host(host)
             .port(port)
             .username(user)
-            .password(pass);
+            .password(pass)
+            .ssl_mode(sqlx::mysql::MySqlSslMode::Required);
         opts = opts.disable_statement_logging();
 
         let pool = MySqlPoolOptions::new()
