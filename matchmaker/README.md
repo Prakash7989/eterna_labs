@@ -33,8 +33,8 @@ This document describes everything implemented so far: architecture, algorithms,
 | **MySQL persistence** (`db/`, `src/db.rs`) | Done |
 | **React frontend** (`../frontend/`) | Done |
 | **Load simulation** (`../simulate_load.py`) | Done |
-| Load simulation script | **Not yet** |
 | Full README (this file) | Done |
+| Interview explanation README (`../INTERVIEWER_README.md`) | Done |
 
 ---
 
@@ -335,7 +335,7 @@ When matched, `match_id` is set and `GET /matches/{match_id}` returns teams.
 
 ### `DELETE /queue/{player_id}`
 
-Leave the queue. Returns **`204`** on success, **`404`** if unknown.
+Leave the queue. Returns **`204`** on success. This endpoint is intentionally idempotent: if the player id is unknown because the player already left, was matched, or the service restarted, the API still returns **`204`** so browser clients can safely clear stale queue state.
 
 ---
 

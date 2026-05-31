@@ -58,7 +58,15 @@ export default function App() {
           setMatch(m);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Status poll failed");
+        localStorage.removeItem(STORAGE_KEY);
+        setPlayerId(null);
+        setQueueStatus(null);
+        setMatch(null);
+        setError(
+          e instanceof Error
+            ? `Saved queue session expired: ${e.message}`
+            : "Saved queue session expired",
+        );
       }
     };
     poll();
@@ -94,15 +102,16 @@ export default function App() {
   const handleLeave = async () => {
     if (!playerId) return;
     setError(null);
+    const idToLeave = playerId;
+    localStorage.removeItem(STORAGE_KEY);
+    setPlayerId(null);
+    setQueueStatus(null);
+    setMatch(null);
     try {
-      await api.leave(playerId);
-      localStorage.removeItem(STORAGE_KEY);
-      setPlayerId(null);
-      setQueueStatus(null);
-      setMatch(null);
+      await api.leave(idToLeave);
       await refreshHealth();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Leave failed");
+      setError(e instanceof Error ? `Leave request failed: ${e.message}` : "Leave request failed");
     }
   };
 

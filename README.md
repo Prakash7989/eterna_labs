@@ -10,9 +10,17 @@ This repository implements a production-grade, thread-safe matchmaking service c
 
 | Deliverable | Status | Description |
 | :--- | :---: | :--- |
-| **1. Working Code** | **[OK] Complete** | High-performance, thread-safe Rust service in `matchmaker/` with concurrent `DashMap` pools, transactional claim rollbacks, lock-free observability metrics, and SQL persistence. |
-| **2. Simulation Script** | **[OK] Complete** | Asynchronous Python simulation script `simulate_load.py` in the root folder, capable of concurrent injection of thousands of player requests, tracking queue wait times, throughput, and matchmaking quality metrics. |
-| **3. ReadMe Document** | **[OK] Complete** | Detailed engineering, algorithmic, and architectural write-up included below and in `matchmaker/README.md`. |
+| **1. Working Code** | **Complete** | Thread-safe Rust service in `matchmaker/` with concurrent `DashMap` pools, transactional claim rollback, lock-free observability metrics, Axum HTTP APIs, and MySQL persistence. |
+| **2. Simulation Script** | **Complete** | `simulate_load.py` can inject thousands of players concurrently, poll match outcomes, and report wait time, throughput, and match quality. |
+| **3. README Document** | **Complete** | Root README, backend README, and `INTERVIEWER_README.md` explain the implementation, complexity, tradeoffs, demo commands, and interview talking points. |
+| **4. React Dashboard** | **Complete** | `frontend/` provides join/leave queue controls, player status, live metrics, and recent MySQL matches. |
+
+## Latest Updates
+
+- Fixed stale browser queue sessions causing repeated `404 Not Found` errors on `DELETE /api/queue/{player_id}` after a backend restart or expired player id.
+- `DELETE /api/queue/{player_id}` is now idempotent and returns `204 No Content` even if the player is already absent, which is the correct behavior for a leave/cancel action.
+- The React dashboard now clears stale `localStorage` queue ids when status polling fails, so old player ids do not keep generating failed requests.
+- Added `INTERVIEWER_README.md`, a separate explanation you can use to walk an interviewer through the design.
 
 ---
 
@@ -33,7 +41,7 @@ copy .env.example .env
 $env:MATCHMAKER_PORT = "8081"
 cargo run
 ```
-*Note: If MySQL is not running on port 3306, the service will print a warning and seamlessly fall back to **in-memory matchmaking** so that local testing and simulations continue uninterrupted.*
+*Note: the current backend waits and retries until MySQL is available because queue and match state are persisted there for the dashboard. Start Docker first or provide a valid `DATABASE_URL`.*
 
 ### 3. Run the React Web Dashboard
 Open a new terminal window to start the frontend server:

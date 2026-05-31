@@ -8,7 +8,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use matchmaker::{
-    Database, JoinQueueRequest, MatchmakerConfig, MatchmakerEngine, MatchResult, PlayerId,
+    Database, JoinQueueRequest, MatchResult, MatchmakerConfig, MatchmakerEngine, PlayerId,
     QueueStatus,
 };
 use serde::{Deserialize, Serialize};
@@ -89,7 +89,9 @@ async fn main() {
         }
     };
 
-    let config = MatchmakerConfig::fetch_from_db(&db.pool).await.unwrap_or_default();
+    let config = MatchmakerConfig::fetch_from_db(&db.pool)
+        .await
+        .unwrap_or_default();
     let config_lock = Arc::new(parking_lot::RwLock::new(config));
 
     let mut engine = MatchmakerEngine::new(Arc::clone(&config_lock));
@@ -163,8 +165,6 @@ async fn main() {
     axum::serve(listener, app).await.expect("serve");
 }
 
-
-
 /// Sole consumer of formed matches: in-memory store + MySQL when connected.
 fn spawn_match_handler(engine: Arc<MatchmakerEngine>, db_slot: Arc<RwLock<Option<Database>>>) {
     tokio::spawn(async move {
@@ -193,10 +193,7 @@ fn spawn_match_handler(engine: Arc<MatchmakerEngine>, db_slot: Arc<RwLock<Option
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
-    let metrics = state
-        .engine
-        .metrics
-        .snapshot(state.engine.pool.len());
+    let metrics = state.engine.metrics.snapshot(state.engine.pool.len());
 
     let guard = state.db.read().await;
     let (db_connected, database) = if let Some(db) = guard.as_ref() {
@@ -354,7 +351,9 @@ async fn leave_queue(
         }
     }
 
-    Err(StatusCode::NOT_FOUND)
+    // Idempotent leave keeps browser clients healthy after API restarts/deploys:
+    // a stale localStorage player id should be considered already absent.
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn get_match(
