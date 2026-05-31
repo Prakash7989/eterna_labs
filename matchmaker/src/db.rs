@@ -7,7 +7,7 @@ use crate::models::{MatchResult, PlayerId, PlayerState};
 
 #[derive(Clone)]
 pub struct Database {
-    pool: MySqlPool,
+    pub pool: MySqlPool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

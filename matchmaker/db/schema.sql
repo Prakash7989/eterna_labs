@@ -28,3 +28,20 @@ CREATE TABLE IF NOT EXISTS match_participants (
     PRIMARY KEY (match_id, player_id),
     CONSTRAINT fk_match FOREIGN KEY (match_id) REFERENCES matches (match_id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS engine_config (
+    id INT PRIMARY KEY DEFAULT 1,
+    team_size INT NOT NULL,
+    worker_count INT NOT NULL,
+    scan_interval_ms INT NOT NULL,
+    initial_mmr_window INT NOT NULL,
+    mmr_relax_per_second DOUBLE NOT NULL,
+    max_mmr_window INT NOT NULL,
+    mmr_bucket_size INT NOT NULL,
+    max_candidates_per_anchor INT NOT NULL
+);
+
+INSERT IGNORE INTO engine_config 
+(id, team_size, worker_count, scan_interval_ms, initial_mmr_window, mmr_relax_per_second, max_mmr_window, mmr_bucket_size, max_candidates_per_anchor)
+VALUES 
+(1, 5, 4, 5, 75, 12.0, 600, 100, 64);

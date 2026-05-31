@@ -57,13 +57,13 @@ pub struct PlayerPool {
     entries: DashMap<PlayerId, PoolEntry>,
     regions: DashMap<String, RegionIndex>,
     generation: AtomicU64,
-    config: MatchmakerConfig,
+    config: std::sync::Arc<parking_lot::RwLock<MatchmakerConfig>>,
     /// Sharded anchor cursor per region to spread worker work.
     anchor_cursors: DashMap<String, AtomicU64>,
 }
 
 impl PlayerPool {
-    pub fn new(config: MatchmakerConfig) -> Self {
+    pub fn new(config: std::sync::Arc<parking_lot::RwLock<MatchmakerConfig>>) -> Self {
         Self {
             entries: DashMap::new(),
             regions: DashMap::new(),
@@ -187,12 +187,12 @@ impl PlayerPool {
             .regions
             .entry(player.region.clone())
             .or_insert_with(RegionIndex::new);
-        idx.insert(player, self.config.mmr_bucket_size);
+        idx.insert(player, self.config.read().mmr_bucket_size);
     }
 
     fn index_remove(&self, player: &WaitingPlayer) {
         if let Some(idx) = self.regions.get(&player.region) {
-            idx.remove(player.mmr, player.id, self.config.mmr_bucket_size);
+            idx.remove(player.mmr, player.id, self.config.read().mmr_bucket_size);
         }
     }
 
@@ -209,7 +209,7 @@ impl PlayerPool {
             return Vec::new();
         };
 
-        let bucket_size = self.config.mmr_bucket_size;
+        let bucket_size = self.config.read().mmr_bucket_size;
         let min_mmr = anchor_mmr - window;
         let max_mmr = anchor_mmr + window;
         let min_bucket = RegionIndex::bucket_key(min_mmr, bucket_size);

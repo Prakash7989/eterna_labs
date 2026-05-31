@@ -16,7 +16,7 @@ use crate::relaxation::mmr_window;
 /// Central matchmaking service: pool + worker threads + match notifications.
 #[derive(Debug)]
 pub struct MatchmakerEngine {
-    pub config: MatchmakerConfig,
+    pub config: std::sync::Arc<parking_lot::RwLock<MatchmakerConfig>>,
     pub pool: Arc<PlayerPool>,
     pub metrics: Arc<MatchmakerMetrics>,
     pub matches: Arc<MatchStore>,
@@ -26,7 +26,7 @@ pub struct MatchmakerEngine {
 }
 
 impl MatchmakerEngine {
-    pub fn new(config: MatchmakerConfig) -> Self {
+    pub fn new(config: std::sync::Arc<parking_lot::RwLock<MatchmakerConfig>>) -> Self {
         let pool = Arc::new(PlayerPool::new(config.clone()));
         let metrics = Arc::new(MatchmakerMetrics::new());
         let matches = Arc::new(MatchStore::new());
@@ -44,7 +44,7 @@ impl MatchmakerEngine {
     }
 
     pub fn start(&mut self) {
-        let worker_count = self.config.worker_count;
+        let worker_count = self.config.read().worker_count as usize;
         for worker_id in 0..worker_count {
             let pool = Arc::clone(&self.pool);
             let metrics = Arc::clone(&self.metrics);
@@ -97,11 +97,14 @@ fn worker_loop(
     pool: Arc<PlayerPool>,
     metrics: Arc<MatchmakerMetrics>,
     match_tx: Sender<MatchResult>,
-    config: MatchmakerConfig,
+    config: std::sync::Arc<parking_lot::RwLock<MatchmakerConfig>>,
 ) {
-    let needed = config.players_per_match();
     loop {
         metrics.inc_scan();
+        
+        // Read config snapshot for this tick
+        let cfg = config.read().clone();
+        let needed = cfg.players_per_match();
         let anchors = pool.anchors_for_shard(worker_id, worker_count);
 
         for (region, anchor_id) in anchors {
@@ -109,14 +112,14 @@ fn worker_loop(
                 &pool,
                 &metrics,
                 &match_tx,
-                &config,
+                &cfg,
                 &region,
                 anchor_id,
                 needed,
             );
         }
 
-        thread::sleep(config.scan_interval);
+        thread::sleep(cfg.scan_interval());
     }
 }
 
@@ -144,7 +147,7 @@ fn try_form_match(
         region,
         anchor.mmr,
         window,
-        config.max_candidates_per_anchor,
+        config.max_candidates_per_anchor as usize,
         anchor.id,
     );
 
@@ -176,7 +179,7 @@ fn try_form_match(
 
     // Try best subset of size `needed` from gathered candidates (anchor + nearby)
     let players: Vec<SkillPlayer> = group.iter().map(|(s, _)| *s).collect();
-    let best_match = find_best_roster(&players, needed, config.team_size);
+    let best_match = find_best_roster(&players, needed, config.team_size as usize);
     let Some((roster, team_a, team_b)) = best_match else {
         return;
     };

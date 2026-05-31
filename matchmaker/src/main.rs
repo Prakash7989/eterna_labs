@@ -66,14 +66,49 @@ async fn main() {
         )
         .init();
 
-    let config = MatchmakerConfig::default();
-    let mut engine = MatchmakerEngine::new(config.clone());
+    let db = loop {
+        match Database::connect_from_env().await {
+            Ok(db) => {
+                if let Err(e) = db.migrate().await {
+                    warn!(%e, "migration failed, retrying in 3s");
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    continue;
+                }
+                match db.reset_stale_waiting().await {
+                    Ok(n) if n > 0 => info!(cleared = n, "reset stale waiting rows from prior run"),
+                    Err(e) => warn!(%e, "stale queue cleanup failed"),
+                    _ => {}
+                }
+                info!("connected to MySQL");
+                break db;
+            }
+            Err(e) => {
+                warn!(%e, "MySQL not ready — retrying in 3s...");
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        }
+    };
+
+    let config = MatchmakerConfig::fetch_from_db(&db.pool).await.unwrap_or_default();
+    let config_lock = Arc::new(parking_lot::RwLock::new(config));
+
+    let mut engine = MatchmakerEngine::new(Arc::clone(&config_lock));
     engine.start();
     let engine = Arc::new(engine);
 
-    let db_slot: Arc<RwLock<Option<Database>>> = Arc::new(RwLock::new(None));
-    spawn_db_connector(Arc::clone(&db_slot));
+    let db_slot: Arc<RwLock<Option<Database>>> = Arc::new(RwLock::new(Some(db.clone())));
     spawn_match_handler(Arc::clone(&engine), Arc::clone(&db_slot));
+
+    let config_lock_clone = Arc::clone(&config_lock);
+    let db_clone = db.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            if let Ok(new_cfg) = MatchmakerConfig::fetch_from_db(&db_clone.pool).await {
+                *config_lock_clone.write() = new_cfg;
+            }
+        }
+    });
 
     let state = AppState {
         engine,
@@ -128,36 +163,7 @@ async fn main() {
     axum::serve(listener, app).await.expect("serve");
 }
 
-fn spawn_db_connector(db_slot: Arc<RwLock<Option<Database>>>) {
-    tokio::spawn(async move {
-        loop {
-            match Database::connect_from_env().await {
-                Ok(db) => {
-                    if let Err(e) = db.migrate().await {
-                        warn!(%e, "migration failed, retrying in 3s");
-                        tokio::time::sleep(Duration::from_secs(3)).await;
-                        continue;
-                    }
-                    match db.reset_stale_waiting().await {
-                        Ok(n) if n > 0 => info!(cleared = n, "reset stale waiting rows from prior run"),
-                        Err(e) => warn!(%e, "stale queue cleanup failed"),
-                        _ => {}
-                    }
-                    info!("connected to MySQL");
-                    *db_slot.write().await = Some(db);
-                    return;
-                }
-                Err(e) => {
-                    warn!(
-                        %e,
-                        "MySQL not ready — using in-memory matchmaking only; fix DB_* in .env or start Docker"
-                    );
-                    tokio::time::sleep(Duration::from_secs(3)).await;
-                }
-            }
-        }
-    });
-}
+
 
 /// Sole consumer of formed matches: in-memory store + MySQL when connected.
 fn spawn_match_handler(engine: Arc<MatchmakerEngine>, db_slot: Arc<RwLock<Option<Database>>>) {
@@ -260,7 +266,7 @@ async fn join_queue(
         }
     }
 
-    let window = mmr_window(&state.engine.config, 0.0);
+    let window = mmr_window(&state.engine.config.read(), 0.0);
 
     Ok(Json(JoinResponse {
         player_id: player.id,
@@ -276,7 +282,7 @@ async fn queue_status(
 ) -> Result<Json<QueueStatus>, StatusCode> {
     if let Some((player, status, match_id)) = state.engine.pool.get_status(player_id) {
         let wait = player.wait_seconds();
-        let window = mmr_window(&state.engine.config, wait);
+        let window = mmr_window(&state.engine.config.read(), wait);
         return Ok(Json(QueueStatus {
             player_id,
             state: status,
@@ -306,7 +312,7 @@ async fn queue_status(
         .num_milliseconds()
         .max(0) as f64
         / 1000.0;
-    let window = mmr_window(&state.engine.config, wait);
+    let window = mmr_window(&state.engine.config.read(), wait);
 
     let match_id = row.match_id_uuid();
     let region = row.region.clone();
