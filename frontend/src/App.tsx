@@ -9,6 +9,7 @@ import {
 } from "./api";
 import { Pipeline } from "./Pipeline";
 import { Demo } from "./Demo";
+import { RealBackendQueue } from "./RealBackendQueue";
 
 const REGIONS = ["na-east", "na-west", "eu-west", "ap-south"];
 const STORAGE_KEY = "matchmaker_player_id";
@@ -128,6 +129,8 @@ export default function App() {
         <Pipeline health={health} />
 
         <Demo />
+
+        <RealBackendQueue onQueued={refreshHealth} />
 
         <section className="card">
           <h2>Join queue</h2>
